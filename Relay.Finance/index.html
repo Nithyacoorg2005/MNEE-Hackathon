@@ -1,13 +1,387 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>relay.finance</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RetentionRelay | Programmable MNEE Demo</title>
+    <!-- Tailwind CSS CDN for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Ethers.js CDN for Web3 interaction (V5 for simplicity) -->
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f7f7f7; }
+        .app-container { max-width: 1000px; margin: 40px auto; padding: 20px; }
+        .card { transition: all 0.3s ease; }
+        .card:hover { transform: translateY(-3px); box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1); }
+        .leverage-info { font-weight: 700; color: #dc2626; } /* Red for emphasis on stake */
+        button:disabled { cursor: not-allowed; opacity: 0.6; }
+        .merchant-view, .user-view { border-radius: 6px; padding: 15px; margin-top: 15px; }
+    </style>
+</head>
+<body class="p-4">
+    <div id="app" class="app-container">
+        <header class="flex justify-between items-center mb-8 border-b pb-4">
+            <h1 class="text-3xl font-extrabold text-gray-800">RetentionRelay | MNEE Hackathon Demo</h1>
+            <button id="connect-wallet" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-300">
+                Connect Wallet
+            </button>
+        </header>
+
+        <div id="status-display" class="status-bar bg-gray-100 p-4 rounded-lg shadow-md mb-6 text-gray-700 font-medium hidden">
+            <p>👤 Connected: <span id="user-address">...</span> (Balance: <span id="mnee-balance">...</span> MNEE)</p>
+            <p>💧 Protocol Pool Status: <span id="match-pool">...</span> MNEE</p>
+            <p>Current Role: <span id="current-role" class="font-bold">...</span></p>
+        </div>
+        
+        <div id="dashboard" class="dashboard-grid grid grid-cols-1 md:grid-cols-2 gap-6 hidden">
+            <!-- 1. Escrow Creator -->
+            <div id="escrow-creator" class="card bg-gray-50 p-6 rounded-xl shadow-lg">
+                <h3 class="text-xl font-semibold text-blue-800 mb-4">🔒 Create New Escrow (Alice's Leverage)</h3>
+                <p class="text-sm text-gray-600">
+                    **MNEE Deposit:** 100 MNEE | **Protocol Match:** 10 MNEE
+                </p>
+                <p id="leverage-display" class="leverage-info text-md font-bold mt-2">
+                    **Total Merchant Incentive:** 110 MNEE at Stake
+                </p>
+                <button id="create-escrow-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300 mt-4">
+                    Lock MNEE & Challenge Merchant
+                </button>
+                <p id="escrow-status" class="text-sm mt-3 font-medium text-gray-500">
+                    Waiting for wallet connection...
+                </p>
+            </div>
+
+            <!-- 2. Offer & Claim Manager -->
+            <div id="offer-manager" class="card bg-gray-50 p-6 rounded-xl shadow-lg">
+                <h3 class="text-xl font-semibold text-purple-800 mb-4">🤝 Negotiation Manager</h3>
+
+                <!-- Merchant View -->
+                <div id="merchant-view" class="merchant-view border p-3 rounded-lg border-purple-300 bg-purple-50 hidden">
+                    <h4 class="font-semibold text-lg text-purple-700">Merchant Action (Bob)</h4>
+                    <p class="text-sm mb-2">Inbound Challenge: **<span id="merchant-escrow-id">...</span>**</p>
+                    <div class="flex items-center space-x-2 my-2">
+                         <input type="number" id="discount-input" value="15" min="0" max="100" class="border rounded p-1 w-20" />
+                        <span class="text-gray-600">% Discount</span>
+                    </div>
+                    <p class="text-sm font-medium">Potential Payout: <span id="payout-amount" class="font-bold">...</span> MNEE</p>
+                    <button id="publish-offer-btn" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300 mt-3">
+                        Publish Retention Offer
+                    </button>
+                </div>
+
+                <!-- User Agent Status -->
+                <div id="user-view" class="user-view border p-3 rounded-lg border-blue-300 bg-blue-50 hidden">
+                    <h4 class="font-semibold text-lg text-blue-700">User Agent Status (Alice)</h4>
+                    <p class="text-sm mb-2">Policy: Auto-Claim if Discount $\ge$ <span id="agent-threshold">15</span>%</p>
+                    <div id="offer-display" class="hidden">
+                        <p class="font-medium">Incoming Offer: <span id="offer-discount">...</span>% (Payout: <span id="offer-payout">...</span> MNEE)</p>
+                        <p id="offer-claim-status" class="font-bold mt-1 text-orange-600">
+                            Waiting for Agent action...
+                        </p>
+                    </div>
+                    <p id="no-offer-message" class="text-gray-500">Waiting for Merchant Offer...</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="welcome-message" class="welcome-message text-center text-xl text-gray-600 py-10">
+            Connect your wallet to begin the programmable money demo.
+        </div>
+    </div>
+
+    <script>
+        // --- CONSTANTS ---
+        // REPLACE THESE WITH YOUR ACTUAL DEPLOYED ADDRESSES ON SEPOLIA
+       const MNEE_ADDRESS = "0xAb5801a7D0d3EaC07B04EdF6D3868Cbc254924A1"; // <--- YOUR DEPLOYED MNEE ADDRESS
+const RELAY_ADDRESS = "0x742d35Cc6634455C6f23f85C775f0f370C16C23D"; // <--- YOUR DEPLOYED RELAY ADDRESS
+const MERCHANT_ADDRESS = "0xC9B267724C4cE3F27e246714E63B482F8E7F0b80"; // <--- YOUR SECOND METAMASK ACCOUNT ADDRESS
+
+        const ESCROW_ID_DEMO = "alice-demo-2025";
+        const AGENT_THRESHOLD = 15;
+        const MNEE_DECIMALS = 18;
+        const ESCROW_AMOUNT = "100";
+        const MATCH_AMOUNT = "10";
+
+        // Minimal ABI required for the demo flow
+        const RELAY_ABI = [
+            'function createEscrow(bytes32 escrowId, address merchant, uint256 amount, uint256 unlockTime, uint256 matchRequested, uint256 vestingMonths)',
+            'function publishOffer(bytes32 escrowId, uint256 discountBps, uint256 newAmount, uint256 expiresAt)',
+            'function claimOffer(bytes32 escrowId)',
+            'function matchPool() view returns (uint256)',
+            'function scoreToken() view returns (address)',
+            'event EscrowCreated(bytes32 indexed escrowId, address indexed user, address indexed merchant, uint256 amount, uint256 matchAmount, uint256 unlockTime)'
+        ];
+
+        const MNEE_ABI = [
+            'function approve(address spender, uint256 amount)',
+            'function balanceOf(address owner) view returns (uint256)',
+        ];
+        
+        // --- STATE VARIABLES ---
+        let signer = null;
+        let provider = null;
+        let userAddress = null;
+        let MNEE_Contract = null;
+        let Relay_Contract = null;
+
+        // --- UTILITY FUNCTIONS ---
+        const toBps = (percentage) => Math.floor(percentage * 100);
+        const formatMNEE = (wei) => ethers.utils.formatUnits(wei, MNEE_DECIMALS);
+        const parseMNEE = (amount) => ethers.utils.parseUnits(amount, MNEE_DECIMALS);
+
+        function updateStatus(elementId, message, isSuccess = false, isError = false) {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+
+            el.textContent = message;
+            el.className = `text-sm mt-3 font-medium ${
+                isSuccess ? 'text-green-600' : 
+                isError ? 'text-red-600' : 
+                'text-gray-500'
+            }`;
+        }
+
+        function updateUI() {
+            if (!userAddress) {
+                document.getElementById('welcome-message').classList.remove('hidden');
+                document.getElementById('dashboard').classList.add('hidden');
+                document.getElementById('status-display').classList.add('hidden');
+                return;
+            }
+
+            document.getElementById('welcome-message').classList.add('hidden');
+            document.getElementById('dashboard').classList.remove('hidden');
+            document.getElementById('status-display').classList.remove('hidden');
+
+            // Role identification
+            const isMerchant = userAddress.toLowerCase() === MERCHANT_ADDRESS.toLowerCase();
+            document.getElementById('current-role').textContent = isMerchant ? 'Merchant (Bob)' : 'User (Alice)';
+            
+            document.getElementById('merchant-view').classList.toggle('hidden', !isMerchant);
+            document.getElementById('user-view').classList.toggle('hidden', isMerchant);
+            document.getElementById('escrow-creator').classList.toggle('hidden', isMerchant); // Alice creates
+
+            document.getElementById('user-address').textContent = userAddress.slice(0, 8) + '...';
+
+            // Merchant Payout Calculation (Updated on discount input)
+            const discountInput = document.getElementById('discount-input');
+            const discountBps = toBps(Number(discountInput.value));
+            const baseAmountWei = parseMNEE(ESCROW_AMOUNT);
+            
+            // Formula: baseAmount * (10000 - discountBps) / 10000
+            const newAmountWei = baseAmountWei.mul(10000 - discountBps).div(10000);
+            document.getElementById('payout-amount').textContent = formatMNEE(newAmountWei);
+
+            fetchBalances();
+        }
+
+        async function fetchBalances() {
+             // CRITICAL: Check if contracts are initialized before calling view functions
+            if (!MNEE_Contract || !Relay_Contract) {
+                console.warn("Contracts not initialized. Cannot fetch balances.");
+                return;
+            }
+            try {
+                const balanceWei = await MNEE_Contract.balanceOf(userAddress);
+                document.getElementById('mnee-balance').textContent = formatMNEE(balanceWei);
+
+                const poolWei = await Relay_Contract.matchPool();
+                document.getElementById('match-pool').textContent = formatMNEE(poolWei);
+            } catch (error) {
+                console.error("Failed to fetch balances:", error);
+                 // If fetching fails, it usually means the contract address is wrong
+                 document.getElementById('mnee-balance').textContent = "ERR";
+                 document.getElementById('match-pool').textContent = "ERR";
+            }
+        }
+
+        // --- CORE WEB3 LOGIC ---
+
+        async function connectWallet() {
+            if (typeof window.ethereum === 'undefined') {
+                alert("Please install MetaMask or another Web3 wallet.");
+                return;
+            }
+
+            try {
+                // Request account access
+                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                userAddress = accounts[0];
+
+                // Initialize provider and signer
+                provider = new ethers.providers.Web3Provider(window.ethereum);
+                signer = provider.getSigner();
+                
+                // Initialize contracts AFTER getting the signer
+                MNEE_Contract = new ethers.Contract(MNEE_ADDRESS, MNEE_ABI, signer);
+                Relay_Contract = new ethers.Contract(RELAY_ADDRESS, RELAY_ABI, signer);
+                
+                console.log(`Connection successful. User: ${userAddress}`);
+                console.log(`Contracts initialized: MNEE @ ${MNEE_ADDRESS}, Relay @ ${RELAY_ADDRESS}`);
+
+
+                updateStatus('escrow-status', 'Wallet connected. Ready to create escrow.', true);
+                updateUI();
+                
+                // Listen for network/account changes
+                window.ethereum.on('accountsChanged', (accounts) => {
+                    userAddress = accounts[0];
+                    signer = provider.getSigner();
+                    updateUI();
+                });
+                window.ethereum.on('chainChanged', () => window.location.reload());
+
+            } catch (error) {
+                // Catch generic connection failure or rejection
+                console.error("Connection failed:", error);
+                updateStatus('escrow-status', 'Wallet connection failed. Check MetaMask console.', false, true);
+            }
+        }
+
+        async function handleCreateEscrow() {
+            if (!signer) return updateStatus('escrow-status', 'Please connect wallet.', false, true);
+
+            const amountWei = parseMNEE(ESCROW_AMOUNT);
+            const matchWei = parseMNEE(MATCH_AMOUNT);
+            const unlockTime = Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60);
+            const vestingMonths = 12;
+            const escrowIdBytes = ethers.utils.formatBytes32String(ESCROW_ID_DEMO);
+            
+            updateStatus('escrow-status', '1. Awaiting Approval transaction...');
+            
+            try {
+                // 1. Approve MNEE
+                const approveTx = await MNEE_Contract.approve(RELAY_ADDRESS, amountWei);
+                await approveTx.wait();
+                updateStatus('escrow-status', '✅ 1. MNEE Approved. Awaiting Escrow transaction...', true);
+                
+                // 2. Create Escrow
+                const createTx = await Relay_Contract.createEscrow(
+                    escrowIdBytes,
+                    MERCHANT_ADDRESS,
+                    amountWei,
+                    unlockTime,
+                    matchWei,
+                    vestingMonths
+                );
+                await createTx.wait();
+                updateStatus('escrow-status', '🎉 ESCROW CREATED! Merchant challenged. Watch for offer.', true);
+                
+                // Start listening for offers
+                startAgentListener();
+                fetchBalances();
+                
+            } catch (error) {
+                console.error("Escrow Creation Failed:", error);
+                 // If transaction fails, check if the user has enough MNEE or ETH for gas
+                updateStatus('escrow-status', `❌ TX failed. Check MNEE balance or gas.`, false, true);
+            }
+        }
+
+        async function handlePublishOffer() {
+            if (!signer) return;
+
+            const discountInput = document.getElementById('discount-input');
+            const discount = Number(discountInput.value);
+            const discountBps = toBps(discount);
+            const baseAmountWei = parseMNEE(ESCROW_AMOUNT);
+            const newAmountWei = baseAmountWei.mul(10000 - discountBps).div(10000);
+
+            const expiresAt = Math.floor(Date.now() / 1000) + (10 * 24 * 60 * 60);
+            const escrowIdBytes = ethers.utils.formatBytes32String(ESCROW_ID_DEMO);
+            
+            updateStatus('offer-claim-status', 'Merchant awaiting transaction...', false, false);
+            document.getElementById('no-offer-message').classList.add('hidden');
+            document.getElementById('offer-display').classList.remove('hidden');
+
+            try {
+                // Publish Offer
+                const tx = await Relay_Contract.publishOffer(
+                    escrowIdBytes,
+                    discountBps,
+                    newAmountWei,
+                    expiresAt
+                );
+                await tx.wait();
+                updateStatus('offer-claim-status', '✅ Offer Published! Agent is now evaluating...', true);
+                
+                // Update the offer display for the user view (simulated event)
+                document.getElementById('offer-discount').textContent = discount;
+                document.getElementById('offer-payout').textContent = formatMNEE(newAmountWei);
+
+                startAgentListener();
+            } catch (error) {
+                console.error("Publish Offer Failed:", error);
+                updateStatus('offer-claim-status', `❌ Publishing failed.`, false, true);
+            }
+        }
+
+        async function handleAutoClaim(newAmountWei) {
+            if (!signer) return;
+            
+            const escrowIdBytes = ethers.utils.formatBytes32String(ESCROW_ID_DEMO);
+            updateStatus('offer-claim-status', '🤖 Agent Matched! Initiating atomic claim...', false, false);
+
+            try {
+                // Claim Offer
+                const tx = await Relay_Contract.claimOffer(escrowIdBytes);
+                await tx.wait();
+                
+                updateStatus('offer-claim-status', '🎉 CLAIM SUCCESS! Merchant paid, User refunded, Score Adjusted.', true);
+                fetchBalances();
+
+            } catch (error) {
+                console.error("Auto Claim Failed:", error);
+                updateStatus('offer-claim-status', `❌ Claim failed. Check Escrow Status.`, false, true);
+            }
+        }
+
+
+        // --- AGENT LISTENER LOGIC (Crucial for Demo) ---
+        function startAgentListener() {
+            if (!Relay_Contract) return;
+
+            // --- Merchant Flow (Self-Contained in UI for Demo) ---
+            if (userAddress.toLowerCase() === MERCHANT_ADDRESS.toLowerCase()) {
+                 // Merchant view initialization
+                 document.getElementById('merchant-escrow-id').textContent = ESCROW_ID_DEMO;
+            }
+
+            // --- User Agent Flow (Self-Contained in UI for Demo) ---
+            if (userAddress.toLowerCase() !== MERCHANT_ADDRESS.toLowerCase()) {
+                
+                const offerDiscountEl = document.getElementById('offer-discount');
+                const offerPayoutEl = document.getElementById('offer-payout');
+                
+                if (offerDiscountEl && offerDiscountEl.textContent && offerDiscountEl.textContent !== '...') {
+                    const discount = Number(offerDiscountEl.textContent);
+                    const payout = parseMNEE(offerPayoutEl.textContent);
+
+                    // Policy Check: Check if discount meets threshold and if the agent hasn't already executed
+                    if (discount >= AGENT_THRESHOLD && document.getElementById('offer-claim-status').textContent.includes('evaluating')) {
+                        // The Agent Auto-Claim logic executes here
+                        setTimeout(() => handleAutoClaim(payout), 3000); 
+                    }
+                }
+            }
+        }
+
+
+        // --- EVENT LISTENERS ---
+        window.onload = () => {
+            document.getElementById('connect-wallet').addEventListener('click', connectWallet);
+            document.getElementById('create-escrow-btn').addEventListener('click', handleCreateEscrow);
+            document.getElementById('publish-offer-btn').addEventListener('click', handlePublishOffer);
+            document.getElementById('discount-input').addEventListener('input', updateUI);
+            
+            // Initial UI check
+            if (typeof window.ethereum !== 'undefined') {
+                 // Try connecting immediately if metamask is already installed
+                 connectWallet(); 
+            }
+        };
+    </script>
+</body>
 </html>
